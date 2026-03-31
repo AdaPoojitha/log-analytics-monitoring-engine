@@ -1,0 +1,30 @@
+timestamp,service,log_level,message
+2026-03-30T13:00:00.000000,auth,INFO,User logged in
+2026-03-30T13:00:05.000000,orders,ERROR,Timeout occurred
+2026-03-30T13:00:10.000000,search,INFO,Cache hit
+2026-03-30T13:00:20.000000,payment,WARN,Retrying request
+2026-03-30T13:01:00.000000,inventory,INFO,Data retrieved
+2026-03-30T13:01:06.000000,shipping,ERROR,Service unavailable
+2026-03-30T13:01:15.000000,user,INFO,Email sent
+2026-03-30T13:01:35.000000,notifications,INFO,Notification delivered
+2026-03-30T13:02:00.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:03.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:06.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:09.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:12.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:15.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:18.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:21.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:24.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:27.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:30.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:33.000000,analytics,ERROR,Database connection failed
+2026-03-30T13:02:40.000000,analytics,INFO,Recovered connection
+2026-03-30T13:03:00.000000,payment,INFO,Transaction completed
+2026-03-30T13:03:10.000000,search,ERROR,Data validation error
+2026-03-30T13:03:22.000000,auth,INFO,Connection established
+2026-03-30T13:03:45.000000,user,DEBUG,Request processed successfully
+2026-03-30T13:04:00.000000,orders,INFO,Order created
+2026-03-30T13:04:20.000000,shipping,ERROR,Timeout occurred
+2026-03-30T13:04:35.000000,notifications,INFO,Email sent
+2026-03-30T13:04:50.000000,inventory,INFO,Cache hit
