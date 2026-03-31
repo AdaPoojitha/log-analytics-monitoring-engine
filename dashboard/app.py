@@ -1,9 +1,9 @@
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
-import pandas as pd
 import os
 import sys
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
 # ---------------------------------------------------
 # PATH SETUP
@@ -13,18 +13,40 @@ root_path = os.path.abspath(os.path.join(current_script_path, ".."))
 if root_path not in sys.path:
     sys.path.insert(0, root_path)
 
-from backend.pipeline.processing import build_pipeline
-from backend.anomaly.detection import detect_anamoly
+from backend.config.anamoly.detection import detect_anomaly
+from backend.config.pipeline.processing import process_pipeline
 
 # ---------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------
-st.set_page_config(
-    page_title="Log Analytics Engine",
-    layout="wide"
-)
+st.set_page_config(page_title="Log Analytics Engine", layout="wide")
 
 st.title("Python Based High Throughput Log Analytics Monitoring Engine")
+st.caption(
+    "Interactive monitoring dashboard powered by Dask for scalable processing and Streamlit for visualization."
+)
+
+LOG_LEVEL_COLORS = {
+    "INFO": "#3B82F6",
+    "WARN": "#F59E0B",
+    "ERROR": "#EF4444",
+    "DEBUG": "#8B5CF6",
+}
+
+
+def style_histogram(figure):
+    figure.update_traces(
+        marker_line_color="#FFFFFF",
+        marker_line_width=1.2,
+        opacity=0.9,
+    )
+    figure.update_layout(bargap=0.15)
+    return figure
+
+
+def safe_count(df, level_name):
+    return int((df["level"] == level_name).sum())
+
 
 # ---------------------------------------------------
 # SIDEBAR
@@ -32,65 +54,49 @@ st.title("Python Based High Throughput Log Analytics Monitoring Engine")
 st.sidebar.header("Settings")
 log_file_path = st.sidebar.text_input(
     "Log File Path",
-    value=r"D:\log-analytics-monitoring-engine\backend\sample_log\data_log.log"
+    value=r"D:\Desktop\log-analytics-monitoring-engine\log-analytics-monitoring-engine\sample_data\log_data.log",
+)
+st.sidebar.markdown("**Dask Dashboard URL:** `http://127.0.0.1:8790/status`")
+st.sidebar.markdown(
+    "Use the Dask dashboard to monitor worker activity, task progress, execution graph, and memory consumption."
 )
 
 if st.sidebar.button("Refresh Dashboard"):
     st.rerun()
 
 # ---------------------------------------------------
-# HELPER: build heatmap for a given level and color
-# ---------------------------------------------------
-def build_heatmap(df, level, colorscale):
-    """
-    Groups logs by second and service, returns a heatmap figure.
-    colorscale options: 'Reds', 'Blues', 'Oranges', 'Greens', etc.
-    """
-    df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["time_bucket"] = df["timestamp"].dt.floor("5s")
-
-    pivot = (
-        df.groupby(["time_bucket", "service"])
-        .size()
-        .reset_index(name="count")
-        .pivot(index="service", columns="time_bucket", values="count")
-        .fillna(0)
-    )
-
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=pivot.values,
-            x=[str(t) for t in pivot.columns],
-            y=pivot.index.tolist(),
-            colorscale=colorscale,
-            showscale=True,
-        )
-    )
-    fig.update_layout(
-        title=f"{level} Log Heatmap (Service vs Time)",
-        xaxis_title="Time",
-        yaxis_title="Service",
-        xaxis=dict(tickangle=-45),
-        height=350,
-        margin=dict(l=20, r=20, t=50, b=80),
-    )
-    return fig
-
-
-# ---------------------------------------------------
 # LOAD DATA
 # ---------------------------------------------------
 try:
-    log_df_dask = build_pipeline(log_file_path)
+    log_df_dask = process_pipeline(log_file_path)
     log_data = log_df_dask.compute()
 
-    anomaly_result = detect_anamoly(log_df_dask)
-    anomaly_df = (
-        anomaly_result.compute()
-        if hasattr(anomaly_result, "compute")
-        else anomaly_result
-    )
+    anomaly_result = detect_anomaly(log_df_dask)
+    anomaly_df = anomaly_result.compute() if hasattr(anomaly_result, "compute") else anomaly_result
+
+    if log_data.empty:
+        st.warning("No logs available to display.")
+        st.stop()
+
+    log_data["timestamp"] = pd.to_datetime(log_data["timestamp"])
+
+    total_logs = len(log_data)
+    total_errors = safe_count(log_data, "ERROR")
+    total_warn = safe_count(log_data, "WARN")
+    total_info = safe_count(log_data, "INFO")
+    total_debug = safe_count(log_data, "DEBUG")
+    total_services = int(log_data["service"].nunique())
+    anomaly_count = len(anomaly_df) if not anomaly_df.empty else 0
+    latest_timestamp = log_data["timestamp"].max()
+
+    st.subheader("Operational Overview")
+    metric_1, metric_2, metric_3, metric_4, metric_5 = st.columns(5)
+    metric_1.metric("Total Logs", f"{total_logs:,}")
+    metric_2.metric("Errors", total_errors)
+    metric_3.metric("Warnings", total_warn)
+    metric_4.metric("Services", total_services)
+    metric_5.metric("Anomalies", anomaly_count)
+    st.caption(f"Latest log timestamp: {latest_timestamp}")
 
     # ---------------------------------------------------
     # PIE CHART
@@ -106,107 +112,151 @@ try:
         values="count",
         title="Distribution of Log Levels",
         color="level",
-        color_discrete_map={
-            "ERROR": "#EF4444",
-            "WARN":  "#F59E0B",
-            "INFO":  "#3B82F6",
-            "DEBUG": "#10B981",
-        }
+        color_discrete_map=LOG_LEVEL_COLORS,
+    )
+    pie_chart.update_traces(
+        textinfo="percent+label",
+        marker=dict(line=dict(color="#FFFFFF", width=2)),
     )
     st.plotly_chart(pie_chart, use_container_width=True)
+
+    # ---------------------------------------------------
+    # SERVICE INSIGHTS
+    # ---------------------------------------------------
+    insight_col1, insight_col2 = st.columns(2)
+
+    with insight_col1:
+        st.subheader("Service-wise Log Volume")
+        service_counts = log_data["service"].value_counts().reset_index()
+        service_counts.columns = ["service", "count"]
+
+        fig_service = px.bar(
+            service_counts,
+            x="service",
+            y="count",
+            color="count",
+            color_continuous_scale="Blues",
+            title="Logs Generated by Each Service",
+        )
+        fig_service.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig_service, use_container_width=True)
+
+    with insight_col2:
+        st.subheader("Service Severity Heatmap")
+        severity_matrix = (
+            log_data.groupby(["service", "level"])
+            .size()
+            .reset_index(name="count")
+            .pivot(index="service", columns="level", values="count")
+            .fillna(0)
+        )
+        severity_matrix = severity_matrix.reindex(sorted(severity_matrix.columns), axis=1)
+
+        heatmap = px.imshow(
+            severity_matrix,
+            text_auto=True,
+            aspect="auto",
+            color_continuous_scale="YlOrRd",
+            title="Service vs Log Level Distribution",
+        )
+        st.plotly_chart(heatmap, use_container_width=True)
 
     # ---------------------------------------------------
     # FILTER LEVELS
     # ---------------------------------------------------
     error_df = log_data[log_data["level"] == "ERROR"].copy()
-    info_df  = log_data[log_data["level"] == "INFO"].copy()
-    warn_df  = log_data[log_data["level"] == "WARN"].copy()
+    info_df = log_data[log_data["level"] == "INFO"].copy()
+    warn_df = log_data[log_data["level"] == "WARN"].copy()
+    debug_df = log_data[log_data["level"] == "DEBUG"].copy()
 
     # ---------------------------------------------------
-    # HEATMAP — ERROR (Red)
+    # TIMELINE GRAPHS
     # ---------------------------------------------------
-    st.subheader("ERROR Log Heatmap")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("ERROR Logs Over Time")
+        if not error_df.empty:
+            fig_error = px.histogram(
+                error_df,
+                x="timestamp",
+                color_discrete_sequence=[LOG_LEVEL_COLORS["ERROR"]],
+            )
+            style_histogram(fig_error)
+            st.plotly_chart(fig_error, use_container_width=True)
+        else:
+            st.info("No ERROR logs")
+
+    with col2:
+        st.subheader("INFO Logs Over Time")
+        if not info_df.empty:
+            fig_info = px.histogram(
+                info_df,
+                x="timestamp",
+                color_discrete_sequence=[LOG_LEVEL_COLORS["INFO"]],
+            )
+            style_histogram(fig_info)
+            st.plotly_chart(fig_info, use_container_width=True)
+        else:
+            st.info("No INFO logs")
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        st.subheader("WARN Logs Over Time")
+        if not warn_df.empty:
+            fig_warn = px.histogram(
+                warn_df,
+                x="timestamp",
+                color_discrete_sequence=[LOG_LEVEL_COLORS["WARN"]],
+            )
+            style_histogram(fig_warn)
+            st.plotly_chart(fig_warn, use_container_width=True)
+        else:
+            st.info("No WARN logs")
+
+    with col4:
+        st.subheader("DEBUG Logs Over Time")
+        if not debug_df.empty:
+            fig_debug = px.histogram(
+                debug_df,
+                x="timestamp",
+                color_discrete_sequence=[LOG_LEVEL_COLORS["DEBUG"]],
+            )
+            style_histogram(fig_debug)
+            st.plotly_chart(fig_debug, use_container_width=True)
+        else:
+            st.info("No DEBUG logs")
+
+    # ---------------------------------------------------
+    # ERROR TREND PER MINUTE
+    # ---------------------------------------------------
+    st.subheader("Error Count Per Minute")
+
     if not error_df.empty:
-        st.plotly_chart(
-            build_heatmap(error_df, "ERROR", "Reds"),
-            use_container_width=True
-        )
-    else:
-        st.info("No ERROR logs found")
-
-    # ---------------------------------------------------
-    # HEATMAP — INFO (Blue)
-    # ---------------------------------------------------
-    st.subheader("INFO Log Heatmap")
-    if not info_df.empty:
-        st.plotly_chart(
-            build_heatmap(info_df, "INFO", "Blues"),
-            use_container_width=True
-        )
-    else:
-        st.info("No INFO logs found")
-
-    # ---------------------------------------------------
-    # HEATMAP — WARN (Orange)
-    # ---------------------------------------------------
-    st.subheader("WARN Log Heatmap")
-    if not warn_df.empty:
-        st.plotly_chart(
-            build_heatmap(warn_df, "WARN", "Oranges"),
-            use_container_width=True
-        )
-    else:
-        st.info("No WARN logs found")
-
-    # ---------------------------------------------------
-    # ERROR TREND LINE — FIXED
-    # ---------------------------------------------------
-    st.subheader("Error Count Over Time")
-
-    if not error_df.empty:
-        error_df["timestamp"] = pd.to_datetime(error_df["timestamp"])
-
-        # Auto resample: use seconds for short datasets, minutes for longer
         time_range = error_df["timestamp"].max() - error_df["timestamp"].min()
         resample_rule = "1min" if time_range.total_seconds() > 120 else "5s"
 
         error_trend = (
-            error_df
-            .set_index("timestamp")
+            error_df.set_index("timestamp")
             .resample(resample_rule)
             .size()
             .reset_index(name="error_count")
         )
 
-        # Drop zero-count buckets so the line is not flat
-        error_trend = error_trend[error_trend["error_count"] > 0]
-
-        if len(error_trend) >= 2:
-            line_chart = px.line(
-                error_trend,
-                x="timestamp",
-                y="error_count",
-                title="Error Frequency Over Time",
-                markers=True,
-                color_discrete_sequence=["#EF4444"],
-            )
-            line_chart.update_traces(line=dict(width=2))
-            line_chart.update_layout(
-                xaxis_title="Time",
-                yaxis_title="Error Count",
-                yaxis=dict(rangemode="tozero"),
-            )
-            st.plotly_chart(line_chart, use_container_width=True)
-        else:
-            # Not enough time buckets — show bar chart instead
-            bar_chart = px.bar(
-                error_trend,
-                x="timestamp",
-                y="error_count",
-                title="Error Frequency (Bar — not enough time range for line)",
-                color_discrete_sequence=["#EF4444"],
-            )
-            st.plotly_chart(bar_chart, use_container_width=True)
+        line_chart = px.line(
+            error_trend,
+            x="timestamp",
+            y="error_count",
+            title="Error Frequency",
+            markers=True,
+            color_discrete_sequence=[LOG_LEVEL_COLORS["ERROR"]],
+        )
+        line_chart.update_traces(
+            line=dict(width=3),
+            marker=dict(size=9, line=dict(color="#FFFFFF", width=1)),
+        )
+        st.plotly_chart(line_chart, use_container_width=True)
     else:
         st.info("No error data available for trend analysis")
 
@@ -216,10 +266,76 @@ try:
     st.subheader("Detected Anomalies")
 
     if anomaly_df.empty:
-        st.success("✅ No anomalies detected")
+        st.success("No anomalies detected")
     else:
-        st.warning(f"🚨 {len(anomaly_df)} anomalies detected!")
+        st.warning(f"{len(anomaly_df)} anomalies detected")
         st.dataframe(anomaly_df, use_container_width=True)
+
+    # ---------------------------------------------------
+    # DETAILED TABLES
+    # ---------------------------------------------------
+    detail_col1, detail_col2 = st.columns(2)
+
+    with detail_col1:
+        st.subheader("Recent Error Logs")
+        recent_errors = (
+            error_df.sort_values("timestamp", ascending=False)[["timestamp", "service", "message"]].head(10)
+        )
+        if recent_errors.empty:
+            st.info("No recent error logs")
+        else:
+            st.dataframe(recent_errors, use_container_width=True)
+
+    with detail_col2:
+        st.subheader("Recent Warning Logs")
+        recent_warn = (
+            warn_df.sort_values("timestamp", ascending=False)[["timestamp", "service", "message"]].head(10)
+        )
+        if recent_warn.empty:
+            st.info("No recent warning logs")
+        else:
+            st.dataframe(recent_warn, use_container_width=True)
+
+    st.subheader("Top Error-Prone Services")
+    error_service_counts = (
+        error_df.groupby("service").size().reset_index(name="error_count").sort_values("error_count", ascending=False)
+    )
+
+    if error_service_counts.empty:
+        st.info("No service has generated error logs.")
+    else:
+        fig_error_services = px.bar(
+            error_service_counts,
+            x="service",
+            y="error_count",
+            color="error_count",
+            color_continuous_scale="Reds",
+            title="Services with Highest Error Counts",
+        )
+        fig_error_services.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig_error_services, use_container_width=True)
+
+    # ---------------------------------------------------
+    # PROJECT SUMMARY CONTENT
+    # ---------------------------------------------------
+    with st.expander("Dashboard Summary for PPT / Viva"):
+        busiest_service = service_counts.iloc[0]["service"] if not service_counts.empty else "N/A"
+        most_common_level = level_counts.iloc[0]["level"] if not level_counts.empty else "N/A"
+        st.markdown(
+            f"""
+            - Total logs processed: **{total_logs:,}**
+            - Services monitored: **{total_services}**
+            - Most active service: **{busiest_service}**
+            - Most common log level: **{most_common_level}**
+            - INFO events: **{total_info}**
+            - WARN events: **{total_warn}**
+            - ERROR events: **{total_errors}**
+            - DEBUG events: **{total_debug}**
+            - Anomalies identified using z-score method: **{anomaly_count}**
+            - Dask dashboard provides execution-level monitoring for workers, tasks, and memory
+            - Streamlit dashboard provides user-friendly visualization, trend analysis, and anomaly review
+            """
+        )
 
 except Exception as e:
     st.error(f"Error loading or processing data: {str(e)}")

@@ -1,11 +1,11 @@
 from backend.config.dask_config import create_dask_client
 from backend.config.pipeline.processing import process_pipeline
 from backend.config.anamoly.detection import detect_anomaly
-from backend.config.email_config import send_email
+from backend.config.email_config import send_anomaly_email
 import time
 
 
-ADMIN_EMAIL = "admin@example.com" 
+ADMIN_EMAIL = "adapoojitha@gmail.com" 
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     start = time.time()
 
     # Build log processing pipeline
-    log_df = process_pipeline("backend/config/sample_data/log_data.log")
+    log_df = process_pipeline("sample_data/log_data.log")
 
     total_logs = log_df.count().compute()
     end = time.time()
